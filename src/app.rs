@@ -1,11 +1,11 @@
 //! Provides all of the utilities needed to load a configuration and run a process.
 
-use super::{admin, resolver, router, server};
 use super::balancer::BalancerFactory;
 use super::connector::{ConfigError as ConnectorConfigError, ConnectorFactoryConfig};
 use super::resolver::{ConfigError as ResolverConfigError, NamerdConfig};
 use super::server::ConfigError as ServerConfigError;
-use futures::{Future, Stream, sync};
+use super::{admin, resolver, router, server};
+use futures::{sync, Future, Stream};
 use hyper;
 use hyper::server::Http;
 use serde_json;
@@ -77,7 +77,7 @@ impl ::std::str::FromStr for AppConfig {
 
     /// Parses a JSON- or YAML-formatted configuration file.
     fn from_str(txt: &str) -> Result<AppConfig> {
-        let txt = txt.trim_left();
+        let txt = txt.trim_start();
         if txt.starts_with('{') {
             serde_json::from_str(txt).map_err(Error::Json)
         } else {
@@ -107,9 +107,10 @@ impl AppConfig {
         let mut resolvers = VecDeque::with_capacity(self.routers.len());
         for config in self.routers.drain(..) {
             let mut r = config.into_router(buf.clone(), &metrics)?;
-            let e = r.resolver_executor.take().expect(
-                "router missing resolver executor",
-            );
+            let e = r
+                .resolver_executor
+                .take()
+                .expect("router missing resolver executor");
             routers.push_back(r);
             resolvers.push_back(e);
         }
@@ -117,23 +118,29 @@ impl AppConfig {
         // Read the admin server configuration and bundle it an AdminRunner.
         let admin = {
             let addr = {
-                let ip = self.admin.as_ref().and_then(|a| a.ip).unwrap_or_else(
-                    localhost_addr,
-                );
-                let port = self.admin.as_ref().and_then(|a| a.port).unwrap_or(
-                    DEFAULT_ADMIN_PORT,
-                );
+                let ip = self
+                    .admin
+                    .as_ref()
+                    .and_then(|a| a.ip)
+                    .unwrap_or_else(localhost_addr);
+                let port = self
+                    .admin
+                    .as_ref()
+                    .and_then(|a| a.port)
+                    .unwrap_or(DEFAULT_ADMIN_PORT);
                 net::SocketAddr::new(ip, port)
             };
             let grace = {
-                let s = self.admin
+                let s = self
+                    .admin
                     .as_ref()
                     .and_then(|admin| admin.grace_secs)
                     .unwrap_or(DEFAULT_GRACE_SECS);
                 Duration::from_secs(s)
             };
             let metrics_interval = {
-                let s = self.admin
+                let s = self
+                    .admin
                     .as_ref()
                     .and_then(|admin| admin.metrics_interval_secs)
                     .unwrap_or(DEFAULT_METRICS_INTERVAL_SECS);
@@ -154,7 +161,6 @@ impl AppConfig {
         })
     }
 }
-
 
 fn localhost_addr() -> net::IpAddr {
     net::IpAddr::V4(net::Ipv4Addr::new(127, 0, 0, 1))
@@ -207,7 +213,8 @@ impl RouterConfig {
 
         let balancer = {
             let metrics = metrics.clone().prefixed("balancer");
-            let client = self.client
+            let client = self
+                .client
                 .unwrap_or_default()
                 .mk_connector_factory()
                 .map_err(Error::Connector)?;
@@ -315,16 +322,17 @@ impl AdminRunner {
         let prom_export = Rc::new(RefCell::new(String::with_capacity(8 * 1024)));
         let reporting = {
             let prom_export = prom_export.clone();
-            timer.interval(metrics_interval).map_err(|_| {}).for_each(
-                move |_| {
+            timer
+                .interval(metrics_interval)
+                .map_err(|_| {})
+                .for_each(move |_| {
                     let report = reporter.take();
                     let mut prom_export = prom_export.borrow_mut();
                     prom_export.clear();
                     tacho::prometheus::write(&mut *prom_export, &report)
                         .expect("error foramtting metrics for prometheus");
                     Ok(())
-                },
-            )
+                })
         };
 
         handle.spawn(reporting);
@@ -339,16 +347,16 @@ impl AdminRunner {
             let server =
                 admin::Admin::new(prom_export, closer, grace, handle.clone(), timer.clone());
             let http = Http::<hyper::Chunk>::new();
-            listener.incoming()
-                .for_each(move |(tcp, _)| {
-                    let serve = http.serve_connection(tcp, server.clone())
-                        .map_err(|err| {
-                            error!("error serving admin: {:?}", err);
-                        })
-                        .map(|_| ());
-                    serve_handle.spawn(serve);
-                    Ok(())
-                })
+            listener.incoming().for_each(move |(tcp, _)| {
+                let serve = http
+                    .serve_connection(tcp, server.clone())
+                    .map_err(|err| {
+                        error!("error serving admin: {:?}", err);
+                    })
+                    .map(|_| ());
+                serve_handle.spawn(serve);
+                Ok(())
+            })
         };
 
         reactor.run(serving).unwrap();

@@ -1,6 +1,6 @@
 use super::config::TlsServerIdentityConfig;
-use rustls::{Certificate, ResolvesServerCert, SignatureScheme, sign};
 use rustls::internal::pemfile;
+use rustls::{sign, Certificate, ResolvesServerCert, SignatureScheme};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io;
@@ -13,9 +13,7 @@ pub fn new(
     let n_identities = identities.as_ref().map(|ids| ids.len()).unwrap_or(0);
     let default = match default {
         &Some(ref c) => Some(ServerIdentity::load(c)?),
-        &None if n_identities > 0 => {
-            return Err(Error::NoIdentities)
-        },
+        &None if n_identities > 0 => return Err(Error::NoIdentities),
         &None => None,
     };
     let sni = Sni {
@@ -93,20 +91,21 @@ fn load_certs(cert_file_path: &String) -> Result<Vec<Certificate>, Error> {
     let file = File::open(&cert_file_path)
         .map_err(|e| Error::FailedToOpenCertificateFile(cert_file_path.clone(), e))?;
     let mut r = io::BufReader::new(file);
-    pemfile::certs(&mut r)
-        .map_err(|()| Error::FailedToReadCertificateFile(cert_file_path.clone()))
+    pemfile::certs(&mut r).map_err(|()| Error::FailedToReadCertificateFile(cert_file_path.clone()))
 }
 
 // from rustls example
-fn load_private_key(key_file_path: &String)
-                    -> Result<Box<sign::SigningKey>, Error> {
+fn load_private_key(key_file_path: &String) -> Result<Box<sign::SigningKey>, Error> {
     let file = File::open(&key_file_path)
         .map_err(|e| Error::FailedToOpenPrivateKeyFile(key_file_path.clone(), e))?;
     let mut r = io::BufReader::new(file);
     let keys = pemfile::rsa_private_keys(&mut r)
         .map_err(|()| Error::FailedToReadPrivateKeyFile(key_file_path.clone()))?;
     if keys.len() != 1 {
-        return Err(Error::WrongNumberOfKeysInPrivateKeyFile(key_file_path.clone(), keys.len()));
+        return Err(Error::WrongNumberOfKeysInPrivateKeyFile(
+            key_file_path.clone(),
+            keys.len(),
+        ));
     }
     let key = sign::RSASigningKey::new(&keys[0])
         .map_err(|()| Error::FailedToConstructPrivateKey(key_file_path.clone()))?;

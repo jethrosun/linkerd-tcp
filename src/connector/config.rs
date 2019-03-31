@@ -72,7 +72,6 @@ pub struct ConnectorConfig {
     pub min_connections: Option<usize>,
 
     pub fail_fast: Option<FailFastConfig>,
-
     // TODO requeue_budget: Option<RequeueBudget>
 }
 
@@ -92,12 +91,14 @@ impl ConnectorConfig {
         let connect_timeout = self.connect_timeout_ms.map(time::Duration::from_millis);
         let max_waiters = self.max_waiters.unwrap_or(DEFAULT_MAX_WAITERS);
         let min_conns = self.min_connections.unwrap_or(0);
-        let max_fails = self.fail_fast
+        let max_fails = self
+            .fail_fast
             .as_ref()
             .and_then(|c| c.max_consecutive_failures)
             .unwrap_or(DEFAULT_MAX_CONSECUTIVE_FAILURES);
         let fail_penalty = {
-            let s = self.fail_fast
+            let s = self
+                .fail_fast
                 .as_ref()
                 .and_then(|c| c.failure_penalty_secs)
                 .unwrap_or(DEFAULT_FAILURE_PENALTY_SECS);
